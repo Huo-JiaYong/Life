@@ -10,7 +10,7 @@ but I never took it, you know why,
 
 it was too fucking hard
 
-知道哪里是对的就要选择，否则你知不知道有什么意义呢
+知道哪里是对的就要选择，否则你知不知道有什么意义
 
 JUST DO IT !
 
