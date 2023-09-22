@@ -54,6 +54,3 @@ Spring 是 JAVA EE 中高内聚、低耦合的最佳实践
 [Spring MVC 启动过程](https://www.cnblogs.com/zhangminghui/p/4912631.html) ★★★
 
 [Spring MVC 工作流程](http://blog.csdn.net/james_shu/article/details/54616120) ★★★
-
-
-
