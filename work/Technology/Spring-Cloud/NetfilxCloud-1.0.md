@@ -1,0 +1,442 @@
+## Spring Cloud 1.0 （netfilx）
+
+事实基于 netfilx 的大部分开源组件为标准，后因 netfilx 闭源停止维护
+
+#### 构建根项目
+
+1. 创建一个空的 maven 项目作为父模块
+2. 引入 spring-boot-dependencies 2.3.12.RELEASE 版本，type: pom
+3. OR 直接引用 spring-boot-parent 2.3.12.RELEASE 版本（则包含 java.version 等部分配置）
+4. 引入 spring-cloud-denpendencies Hoxton.SR12 版本，type: pom
+5. 引入其他需要的包，如 mybatis 等（先检查 spring-boot 是否包含）
+
+#### Eureka 
+
+主要提供服务注册和发现等，可以使用搭建多个**域名**的 server 组成集群（相同域名不能组成的样子）
+
+##### server 注册中心
+
+1. 使用 quick-start 模板创建一个子模块
+2. 引用 spring-cloud-starter-netfilx-eureka-server 模块
+3. 配置 server.port 和 eureka.instance.hostname 设置端口和名称
+4. 配置 eureka.client.service-url.defaultZone 为集群其他节点的地址和端口
+5. 使用 @EnableEurekaServer 启动注册中心服务
+
+##### provider 服务提供者
+
+1. 创建子模块
+2. 引入 spring-cloud-starter-netfilx-eureka-client 包
+3. 引入 mysql-connector-java 和 mybatis-spring-boot-starter 包
+4. 配置 spring.application.name 为**服务名称**（后续通过微服务名称调用）
+5. 配置 spring.data.source 等数据库参数
+6. 配置 eureka.client.service-url.defaultZone 指定注册中心地址（集群）
+7. 配置 MapperScan("org.cloud.huo.mapper") 指定 mybatis 扫描的路径
+8. 创建一个三层结构的简单接口，并测试接口通畅
+
+##### comsumer 服务消费者
+
+1. 创建子模块同上
+2. 引入 spring-cloud-starter-netfilx-eureka-client 包
+3. 配置 eureka.client.service-url.defaultZone 指定注册中心地址（集群）
+4. 创建一个 RestTemplate 对象，getForObject 方法请求 http://服务名称/uri 的方式调用服务
+
+#### ribbon 负载均衡
+
+1. 在消费者中引入 spring-cloud-starter-netfilx-ribbon 包
+2. 在创建 RestTemplate 对象时，使用 @LoadBalanced 装饰对象
+
+#### OpenFeign
+
+##### 声明式调用
+
+1. 引入 spring-cloud-starter-openfeign 包
+
+2. 使用 @OpenFeignClients 注解开启 OpenFeign 功能
+
+3. 创建调用服务的接口和请求方法，和被调用方的方法参数要一致
+
+   ```java
+   @Component
+   // 服务名称，即 application.name
+   @FeignClient(value = "MICROSERVICECLOUDPROVIDERDEPT")
+   public interface DeptFeignService {
+       
+       // 对应服务提供者（8001、8002、8003）Controller 中定义的方法
+       @RequestMapping(value = "/dept/get/{id}", method = RequestMethod.GET)
+       public Dept get(@PathVariable("id") int id);
+   }
+   ```
+
+4. 通过 @FeignClient 指定当前接口对应的服务提供方和服务名称
+
+5. 直接在需要的地方注入 DeptFeignService 接口即可
+
+##### 设置超时时间
+
+1. ribbon 的默认超时时间为 1s 如果超时则会报错
+2. 配置 ribbon.ReadTimeout 参数即可调整时间
+
+##### 请求日志
+
+1. 配置请求接口的日志等级：logging.level.{package}: debug
+
+2. 配置 OpenFeign 日志等级 
+
+   ```java
+   @Bean
+   Logger.Level feginLoggerLevel() {
+       return Logger.Level.FULL;
+   }
+   ```
+
+3. 日志等级
+
+   1. NONE：不记录任何信息
+   2. BASIC：仅记录请求方法、URL 以及响应状态码和执行时间。
+   3. HEADERS：除了记录 BASIC 级别的信息外，还会记录请求和响应的头信息。
+   4. FULL：记录所有请求与响应的明细，包括头信息、请求体、元数据等等。
+
+#### hystrix 降级和熔断
+
+主要对服务进行熔断，即当服务调用超时直接调用报错方法等，并对当前服务进行降级处理减少调用
+
+##### 服务器降级
+
+1. 引入 spring-cloud-starter-netfilx-hystrix 包
+
+2. 配置 @EnableCircuitBreaker 注解，开启熔断器功能
+
+3. 在需要的 ServiceImpl 方法上新增 @HystrixCommand(fallbackMethod  = "timeoutHandler") 注解
+
+   ```java
+   @HystrixCommand(
+       fallbackMethod = "dept_TimeoutHandler", 
+       // 指定超时时间
+       commandProperties = {
+           @HystrixProperty(
+               name ="execution.isolation.thread.timeoutInMilliseconds", 
+               value = "5000"
+           )
+       }
+   )
+   @Override
+   public String deptInfo_Timeout(Integer id) {
+   
+   }
+   
+   public String timoutHandler(){
+       return "当前服务器忙，请稍后重试";
+   }
+   ```
+
+##### 客户端降级
+
+1. 引入 spring-cloud-starter-netfilx-hystrix 包
+
+2. 配置 feign.hystrix.enable: ture 打开客户端 hystrix 功能
+
+3. 配置 @EnableHystrix 注解，启用 hystrix 
+
+4. 配置客户端降级方案
+
+   ```java
+   @RequestMapping(value = "/consumer/dept/hystrix/timeout/{id}")
+   @HystrixCommand(fallbackMethod = "dept_TimeoutHandler") 
+   public String deptInfo_Timeout(@PathVariable("id") Integer id) {
+       return deptHystrixService.deptInfo_Timeout(id);
+   }
+   
+   // 回退方法
+   public String dept_TimeoutHandler(@PathVariable("id") Integer id) {
+       return "服务端系统繁忙，请稍后再试！";
+   }
+   ```
+
+##### 全局降级
+
+1. 使用 @DefaultProperties(defaultFallbak = "globalFallback") 注解指定当前类的降级方法
+2. 在**当前类**创建 globalFallback 方法
+3. 给需要降级的方法添加 @HystrixCommand 注解，即可使用全局降级方法
+
+##### 解耦降级方法
+
+1. 实现需要配置降级的服务类
+
+   ```java
+   @Component
+   public class DeptHystrixFallBackService implements DeptHystrixService {
+       
+        @Override
+       public String deptInfo_Ok(Integer id) {
+           return "系统繁忙，请稍后重试！";
+       }
+   }
+   ```
+
+2. 在进行声明式调用时指定 @FeignClient(fallback = DeptHystrixFallbackService.class) 对应的降级方法实现
+
+   ```java
+   @Component
+   @FeignClient(value = "MICROSERVICECLOUDPROVIDERDEPTHYSTRIX", 
+                fallback = DeptHystrixFallBackService.class)
+   public interface DeptHystrixService {
+       
+       @RequestMapping(value = "/dept/hystrix/ok/{id}")
+       public String deptInfo_Ok(@PathVariable("id") Integer id);
+       
+   }
+   ```
+
+##### 熔断状态
+
+在熔断机制中涉及了三种熔断状态：
+
+- 熔断关闭状态（Closed）：当服务访问正常时，熔断器处于关闭状态，服务调用方可以正常地对服务进行调用。
+- 熔断开启状态（Open）：默认情况下，在固定时间内接口调用出错比率达到一个阈值（例如 50%），熔断器会进入熔断开启状态。进入熔断状态后，后续对该服务的调用都会被切断，熔断器会执行本地的降级（FallBack）方法。
+- 半熔断状态（Half-Open）： 在熔断开启一段时间之后，熔断器会进入半熔断状态。在半熔断状态下，熔断器会尝试恢复服务调用方对服务的调用，允许部分请求调用该服务，并监控其调用成功率。如果成功率达到预期，则说明服务已恢复正常，熔断器进入关闭状态；如果成功率仍旧很低，则重新进入熔断开启状态。
+
+##### 熔断配置
+
+```java
+//Hystrix 熔断案例
+@Override
+@HystrixCommand(
+    fallbackMethod = "deptCircuitBreaker_fallback", 
+    commandProperties = {
+        // 以下参数在 HystrixCommandProperties 类中有默认配置
+        // 是否开启熔断器
+        @HystrixProperty(
+            name = "circuitBreaker.enabled", 
+            value = "true"
+        ), 
+        // 统计时间窗
+    	@HystrixProperty(
+            name = "metrics.rollingStats.timeInMilliseconds", 
+            value = "1000"
+        ), 
+        // 统计时间窗内请求次数
+        @HystrixProperty(
+            name = "circuitBreaker.requestVolumeThreshold", 
+            value = "10"
+        ),
+        // 休眠时间窗口期
+        @HystrixProperty(
+            name = "circuitBreaker.sleepWindowInMilliseconds", 
+            value = "10000"
+        ), 
+        // 在统计时间窗口期以内，请求失败率达到 60% 时进入熔断状态
+        @HystrixProperty(
+            name = "circuitBreaker.errorThresholdPercentage", 
+            value = "60"
+        ), 
+})
+public String deptCircuitBreaker(Integer id) {
+    if (id < 0) {
+        //当传入的 id 为负数时，抛出异常，调用降级方法
+        throw new RuntimeException("id 不能是负数！");
+    }
+    String serialNum = IdUtil.simpleUUID();
+    return Thread.currentThread().getName() + "\t" + "调用成功，流水号为：" + serialNum;
+}
+
+// deptCircuitBreaker 的降级方法
+public String deptCircuitBreaker_fallback(Integer id) {
+    return "id 不能是负数,请稍后重试!\t id:" + id;
+}
+```
+
+1. 传入 id = -1 调用降级方法，当多次重试后进入熔断状态（此时即使传入正数调用也是降级方法）
+2. 闯入 id = 3 调用正常逻辑，当多次重试后会恢复到正常业务
+
+##### 故障监控
+
+1. 创建新模块引入 spring-cloud-starter-netfilx-hystrix-dashboard 包
+
+2. 使用 @EnableHystrixDashboard 注解开启监控服务
+
+3. 配置 hystrix.dashboard.proxy-stream-allow-list: "localhost" 允许访问列表
+
+4. 启动服务
+
+5. 在服务提供方引入 spring-boot-starter-actuator 包
+
+6. 在需要被监控的服务提供者上新增 hystrix.stream 配置，监控状态
+
+   ```java
+   @Bean
+   public ServletRegistrationBean getServlet() {
+       HystrixMetricsStreamServlet servlet = new HystrixMetricsStreamServlet();
+       ServletRegistrationBean registration =new ServletRegistrationBean(servlet);
+       registration.setLoadOnStartup(1);
+       registration.addUrlMappings("/actuator/hystrix.stream");//访问路径
+       registration.setName("hystrix.stream");
+       return registrationBean;
+   }
+   ```
+
+7. 打开 hystrix-dashboard 端口页面，填入服务提供方的：localhost:8004/acturator/hystrix.stream 开始监控
+
+#### gateway 网关
+
+用以在项目中将微服务的真实地址隐藏、避免跨域、身份认证等作用
+
+##### 使用
+
+1. 引入 spring-cloud-starter-gateway 包（不能引入 web ）
+
+2. 将网关注册到 eureka 中
+
+3. 配置路由
+
+   ```yaml
+   server:
+     port: 9527
+     
+   spring:
+     cloud:
+       gateway:
+         routes:
+           - id: cloud-provider-dept-routh
+             uri: lb://cloudProviderDept
+             predicates:
+               - Path=/dept/2
+               - Method=GET
+   ```
+
+4. 直接通过 localhost:9527/dept/2 即可访问到微服务
+
+5. lb:// 表示 @LoadBalander 可以自动负载均衡
+
+##### 配置过滤器
+
+1. 使用内置过滤器（网关过滤器，应用在单个或一组路由上）
+
+   ```yaml
+   spring:
+     cloud:
+       gateway:
+         routes:
+           - id: cloud-provider-dept-routh
+             uri: lb://cloudProviderDept
+             predicates:
+               - Path=/dept/2
+               - Method=GET
+             filter:
+             	- AddRequestParameter=Authorization,huo.jiayong
+             	- AddRequestHeader
+             	- AddResponseHeader
+             	- PrefixPath
+             	- PreserveHostHeader
+             	- RemoveRequestHeader
+             	- RemoveResponseHeader
+             	- RemoveRequestParameter
+             	- RequestSize
+   ```
+
+2. 全局过滤器
+
+   ```java
+   @Component
+   @Slf4j
+   public class MyGlobalFilter implements GlobalFilter, Ordered {
+       @Override
+       public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain){
+           // TODO do something
+       }
+   }
+   ```
+
+#### Config 配置中心
+
+##### Config 服务端
+
+1. 引入 spring-cloud-starter-config 包
+
+2. 使用 @EnableConfigServer 注解，打开配置功能
+
+3. 设置配置文件的网络地址
+
+   ```yaml
+   server:
+     port: 3344
+   
+   spring:
+     application:
+       name: cloud-config-center
+     cloud:
+       config:
+         label: master
+         server:
+           git:
+             uri: http://10.11.1.172/jiayong.huo/cloud-config.git
+             search-paths:
+               - cloud-config
+             force-pull: true
+             username: jiayong@onescorpion.com
+             password: zheSH1git
+   ```
+
+4. 启动服务，使用 http://localhost:3344/master/config-dev.yml 访问配置文件
+
+   | 访问规则                                  | 示例                   |
+   | ----------------------------------------- | ---------------------- |
+   | /{application}/{profile}[/{label}]        | /config/dev/master     |
+   | /{application}-{profile}.{suffix}         | /config-dev.yml        |
+   | /{label}/{application}-{profile}.{suffix} | /master/config-dev.yml |
+
+
+##### Config 客户端
+
+1. 引入 spring-cloud-starter-config 包
+
+2. 创建 bootstramp.yml 配置文件
+
+   ```yaml
+   spring:
+     application:
+       name: spring-cloud-config-client 
+     cloud:
+       config:
+         label: master 
+         name: config  
+         profile: dev  
+         # 服务端地址
+         uri: http://localhost:3344 
+   ```
+
+3. 直接在程序中引用指定配置文件中的属性即可
+
+##### 手动刷新值
+
+当 git 服务器更新后，client 无法及时访问到。所以需要手动刷新
+
+1. 引入 spring-boot-starter-actuator 包
+2. 配置文件中新增 management.endpoints.web.exposure.include: "*"  开放监控节点
+3. 在使用配置文件的地方使用 @RefreshScope 标记需要动态刷新
+4. 调用 curl -X POST "http://localhost:3355/actuator/refresh" 手动刷新配置文件
+
+##### Config + Bus实现
+
+使用手动刷新只能刷新一个节点的，而不能实现多个微服务更新。所以引入 bus 来通知其他微服务更新配置
+
+1. 在 服务端 引入 spring-cloud-starter-bus-amqp 包
+
+2. 在 服务端 配置消息队列的地址
+
+   ```yaml
+   spring:
+     rabbitmq:
+       host: 127.0.0.1
+       port: 5672
+       username: guest
+       password: guest
+   ```
+
+3. 在 客户端 引入 spring-cloud-starter-bus-amqp 包 并配置消息队列（同上）
+
+4. 启动后，在 git 更新配置
+
+5. 使用 curl -X POST "http://localhost:3344/actuator/bus-refresh" 通知配置中心刷新配置，则所有服务能够获取到配置文件的更新
+
+6. 也可以进行定点通知：http://{hostname}:{port}/actuator/bus-refresh/{destination}（服务名称:端口）
+

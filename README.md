@@ -1,18 +1,12 @@
 # Life experience
 
-Now I have come to crossroads in my life
+Now I have come to crossroads in my life, I always knew what the rightpath was.
 
-I always knew what the rightpath was.
-
-Without exception, I knew, 
-
-but I never took it, you know why, 
+Without exception, I knew, but I never took it, you know why, 
 
 it was too fucking hard
 
 知道哪里是对的就要选择，否则你知不知道有什么意义
-
-JUST DO IT !
 
 ### Who are you ?
 
@@ -50,6 +44,6 @@ JUST DO IT !
 
      不懂你开个锤子黄腔
 
-   ​
+   
 
-   ​
+   
