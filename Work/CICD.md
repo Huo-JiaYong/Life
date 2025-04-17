@@ -44,7 +44,6 @@ java-info:
 	# 主要执行的脚本语句
 	script: 
 		- java -version
-		
 	before_script: 
 		- "xxxx"
 	after_script:
@@ -61,7 +60,7 @@ java-info:
 	retry: 2
 	# 超时时间，和项目时间谁小用谁
 	timeout: 1h 1m 1s
-	# 创建数量的相同 JOB 执行 1/n ~ n/n
+	# 创建数量的相同 JOB 执行 (显示: 1/n ~ n/n)
 	parallel: 5
 	
 	# 指定分支（逐渐不用）
@@ -191,6 +190,14 @@ OR
    ```
 
 2. yum install gitlab-ce 安装最新版
+
+##### 启动失败：
+
+```shell
+sudo systemctl start gitlab-runsvdir
+
+sudo gitlab-ctl start
+```
 
 
 
