@@ -1136,8 +1136,10 @@ MySQL 中的表锁和行锁都是悲观锁
 
 3. 半同步复制：至少一个从节点接收到 binlog 数据并写入 relay log 成功后，才提交主库的事务
 
-   主库插件：INSTALL PLUGIN rpl_semi_sync_master SONAME 'semisync_master.so';
+   **当指定时间内未收到从库的确认，那主库会自动切换为：异步复制模式，确保不阻塞应用**
 
+   主库插件：INSTALL PLUGIN rpl_semi_sync_master SONAME 'semisync_master.so';
+   
    从库插件：INSTALL PLUGIN rpl_semi_sync_slave SONAME 'semisync_slave.so';
 
 #### MHA | QMHA 升级主节点步骤
@@ -1181,41 +1183,49 @@ MySQL 中的表锁和行锁都是悲观锁
    		# 2. 配置分片信息
    		rules:
                sharding:
+               	# 1.默认分片设置
+               	default-database-strategy:
+               		standard:
+               			sharding-algorithm-name: xxx
+               	default-tables-strategy: 同上
+               	default-key-generate-strategy: 同上
+               	default-sharding-column: 同上
+               	# 2.指定表分片配置
                    tables:
                        order:
-                           # 2.1 分在那些库、表内
+                           # 2.2.1 分在那些库、表内
                            actual-data-nodes: d$->{1..2}.t_order_$->{1..2}
-                           # 2.2 主键生成策略
+                           # 2.2.2 主键生成策略
                            key-generator:
                                cloumn: id
                                type: SNOWFLAKE | UUID
-                           # 2.3 分库策略
+                           # 2.2.3 分库策略
                            database-strategy:
                                standard:
                                    sharding-cloumn: id
                                    sharding-algorithm-name: id_hash_mod
-                           # 2.4 分表策略
+                           # 2.2.4 分表策略
                            table-strategy:
                                hint:
                                    sharding-algorithm-name: region-hint-algorithms
-                   # 分片算法定义 type: INLINE\HASH_MOD\CLASS_BASED
+                   # 3.定义分片算法定义 type: INLINE\HASH_MOD\CLASS_BASED
                    sharding-algorithms:
                        # 内置算法
                        id_hash_mod:
                            type: HASH_MOD
                            props:
                                sharding-count: 2
+                       # 直接写分片算法表达式
+                       order-inline:
+                           type: INLINE
+                           props:
+                             algorithm-expression: t_order_${id % 2 + 1}
                        # 自定义算法类
                        region-hint-algorithms:
                            type: CLASS_BASED
                            props: 
                                strategy: HINT
                                algorithmClassName: com.chagee.sharding.RegionShardingAlgorithm
-                       # 直接写分片算法表达式
-                       order-inline:
-                           type: INLINE
-                           props:
-                             algorithm-expression: t_order_${id % 2 + 1}
    ```
 
 #### 分片策略
@@ -1308,6 +1318,65 @@ MySQL 中的表锁和行锁都是悲观锁
 #### 数据倾斜
 
 分表 & 取余
+
+
+
+## MyBatis
+
+### 生命周期
+
+#### 构建会话工厂
+
+1. 读取配置文件，包括基础配置和 .xml 映射文件
+2. 初始化基础配置，环境变量等。如数据源
+3. 构建 DefaultSqlSessionFactory 实例
+
+#### 执行阶段
+
+1. 通过 SqlSessionFactory 创建 SqlSession
+2. 可以通过 SqlSession 实例来直接执行已映射的 SQL 语句 | 更常用的方式是先获取 Mapper(映射)，然后再执行 SQL 语句
+   1. Executor：真正的执行者，提供相应的查询、更新、事务方法
+      1. SimpleExecutor：update 和 select，使用后就关闭
+      2. ReuseExecutor：update 和 select，以 sql=key  statement=value 缓存到 Map 来重复使用
+      3. BatchExecutor：用以进行批处理，缓存多个 Statement 对象依次执行
+   2. StatementHandler：处理数据库会话，将语句发送的数据库实例中
+   3. ParameterHandler ：参数处理器，设置预编译 SQL 语句的参数
+   4. ResultSetHandler：用来包装结果集，默认用 DefaultResultSetHandler
+3. 调用 session.commit()提交事务
+4. 调用 session.close()关闭会话
+
+### 缓存
+
+一级缓存：默认打开，使用本地缓存，作用域为 SqlSession 
+
+二级缓存：默认关闭，使用本地缓存或自定义存储源，作用域为 Mapper 文件（namespace）。**存储的对象需要实现 Serializable 接口**
+
+写入方式：查询一级缓存没有才查询二级，再查询数据库
+
+更新方式：
+
+	1. 当使用 INSERT \ UPDATE \ DELETE 会清空二级缓存
+ 	2. 当 SqlSession 关闭时，会将一级缓存写入到二级缓存
+
+#### 适用场景：
+
+1. 读多写少的表
+2. 需要多次**重复**查询的表
+3. 查询频繁的非强实时性要求的场景（二级缓存非强一致性）
+
+### Mapper 接口不需要实现类
+
+使用动态代理的方式吗，来生成对应的执行方法，最后交给 SqlSession 对象执行
+
+1. 先获取 MapperProxyFactory 代理工厂，生成 MapperProxy 代理对象
+2. 在 MapperProxy 中通常会生成一个 MapperMethod 对象，使用 cachedMapperMethod 初始化
+3. 然后执行 MapperMethod 对象中的 execute 方法，里面使用 SqlSession 真正的执行 SQL 语句
+
+### 分页查询
+
+Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的结果集在内存中分页，并不是物理分页
+
+分页插件：使用 mybatis 提供的拦截器，拦截 Executor 的 query 方法，根据 dialect 方言**添加物理分页参数**
 
 
 
