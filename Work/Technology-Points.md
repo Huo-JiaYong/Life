@@ -668,6 +668,10 @@ AspectJ：基于编译时增强，可以单独使用，自行引入
 
 ## MySQL
 
+文章资料：
+
+​	崩溃恢复过程：https://mp.weixin.qq.com/s/9Fe99BY7u0mbBs_Jtuea-Q
+
 基础架构大致分为三层：
 
 ​	连接层：处理客户端连接，包括验证身份、权限校验、连接管理等
@@ -1098,19 +1102,19 @@ MySQL 中的表锁和行锁都是悲观锁
 
        binlog-do-db=数据库名
 
-   	2. 从节点：关闭写功能、指定同步库
+   2. 从节点：关闭写功能、指定同步库
 
-       read_only=1
+      read_only=1
 
-       replicate-do-db=需同步数据库
+      replicate-do-db=需同步数据库
 
-   	3. 主节点：查看当前数据状态 show master status; 创建同步对象 “replication”
+   3. 主节点：查看当前数据状态 show master status; 创建同步对象 “replication”
 
-   	4. 从节点：配置主节点信息
+   4. 从节点：配置主节点信息
 
-       CHANGE MASTER TO MASTER_HOST='192.168.10.111', MASTER_USER='replication', MASTER_PASSWORD='123456', MASTER_LOG_FILE='mysql- bin.000006',MASTER_LOG_POS=2303;
+      CHANGE MASTER TO MASTER_HOST='192.168.10.111', MASTER_USER='replication', MASTER_PASSWORD='123456', MASTER_LOG_FILE='mysql- bin.000006',MASTER_LOG_POS=2303;
 
-   	5. 从节点：建立连接：START SLAVE;
+   5. 从节点：建立连接：START SLAVE;
 
 2. MySQL Group Replication（MGR）：多个节点组成复制组，必须 n/2 + 1 的节点通过后才提交
 
@@ -1228,7 +1232,7 @@ MySQL 中的表锁和行锁都是悲观锁
                                algorithmClassName: com.chagee.sharding.RegionShardingAlgorithm
    ```
 
-#### 分片策略
+##### 分片策略
 
 2. strandard：
 
@@ -1243,7 +1247,7 @@ MySQL 中的表锁和行锁都是悲观锁
    
 4. none：不分片
 
-#### 读写分离方案
+##### 读写分离方案
 
 1. **在  MySQL 中设置读写库同步**
 
@@ -1356,9 +1360,9 @@ MySQL 中的表锁和行锁都是悲观锁
 更新方式：
 
 	1. 当使用 INSERT \ UPDATE \ DELETE 会清空二级缓存
- 	2. 当 SqlSession 关闭时，会将一级缓存写入到二级缓存
+	2. 当 SqlSession 关闭时，会将一级缓存写入到二级缓存
 
-#### 适用场景：
+#### 适用场景
 
 1. 读多写少的表
 2. 需要多次**重复**查询的表
@@ -1384,45 +1388,43 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 ### 线程模型
 
-服务器是一个事件驱动程序，服务器处理的事件分为：文件事件（主功能） 和 时间事件（处理AOF持久化等）
-
-文件事件处理器的结构：
-
-1. 多个 Socket
-2. IO 多路复用程序
-3. 文件事件分派器
-4. 文件事件处理器
-
-流程：
-
-1. IO 多路复用程序监听多个 scoket 
-2. 将产生事件的 Socket 放入队列中，一次获取一个交给事件分派器
-3. 分派器将 Socket 给对应的事件处理器
-4. 事件处理完后，才从队列中获取下一个 Socket
-
 #### BIO - NIO - IO multiplexing
 
 1. BIO（Blocking IO）：server 读取 client 发送的数据会阻塞，导致其他 client 无法连接（只能处理一个 client）
 2. BIO + 线程池：读取 client 消息由其他线程执行，主线程就不会阻塞（耗费线程资源）
-3. NIO（Nonblocking IO）：将 client 放入到一个数组中，隔一段事件遍历一次（无效遍历，线程态和内核态（read）切换）
+3. NIO（Nonblocking IO）：将 client 放入到一个数组中，隔一段时间遍历一次（无效遍历，线程态和内核态（read）切换）
 4. IO multiplexing：将一批文件描述符通过系统调用给内核，让内核进行遍历，就不用切换了（应运而生 select poll epoll）
 
 #### IO 多路复用
 
-简单理解就是：一个服务端进程可以同时处理多个 Socket 描述符
+文件描述符（file descrptor，fd）：是**操作系统为每个已打开的文件（包括网络socket、管道pipe、设备/dev/null、常规文件.txt）分配的一个非负整数**，用来唯一标识该文件。
+
+简单理解就是：一个服务端进程可以同时处理多个 Socket 描述符，适合高并发连接、大量连接但读写频率低
 
 - **多路**：多个客户端连接（连接就是 Socket 描述符）
 - **复用**：使用单进程就能够实现同时处理多个客户端的连接
 
 其发展可以分 **select -> poll -> epoll** 三个阶段来描述
 
-redis IO 多路复用程序：
+​	select：使用位图来管理最多 1024 个 fd；使用时将 fd 从用户态复制到内核态；轮询机制 O(n)
+
+​	poll：使用动态数组来管理 fd（不限数量）；线性遍历 O(n)
+
+​	epoll：使用红黑树和链表管理 fd；只需要首次注册到到内核一次；回调事件驱动 O(1)
+
+##### Redis 应用方式：
 
 1. 通过包装常用的 select、poll、evport、kqueue 这些 IO 多路复用函数库来实现
 
 2. 为每个 IO 多路复用函数库（ 各系统提供）都实现相同 API，所以底层实现是可以互换的
 
-   **注：linux epoll 其他只有 select 函数**
+   **注：linux epoll，其他只有 select 函数**
+
+服务器采用 IO 多路复用，收发消息时不会阻塞，整个进程就被充分利用起来了，这就是事件驱动（Reactor 模式）
+
+服务器处理的事件分为：文件事件（主功能） 和 时间事件（处理AOF持久化等）
+
+<img src= "https://cdn.tobebetterjavaer.com/stutymore/redis-20240918114125.png" width=60%>
 
 #### Redis 6.0 多线程
 
@@ -1430,7 +1432,7 @@ redis IO 多路复用程序：
 
 将耗时的 Socket 读取、请求解析、写入等 IO 任务拆分给一组独立线程执行
 
-让主线程只需要命令执行，高效处理多个连接请求（核心线程仍然是线程安全的）
+**让主线程只需要命令执行**，高效处理多个连接请求（核心线程仍然是线程安全的）
 
 
 
@@ -1441,26 +1443,14 @@ redis IO 多路复用程序：
 | 数据类型      | 编码方式                               | 使用条件                |
 | :------------ | :------------------------------------- | ----------------------- |
 | String 字符串 | int、embstr、raw                       | 长度 < 44 = embstr      |
+| Hash 哈希表   | ziplist、hashtable                     | <64byte <512 = ziplist  |
 | List 列表     | ziplist、linkedlist、quicklist（3.2+） | <64byte <512 = ziplist  |
 | Set 集合      | intset、hashtable                      | 整数 = intset           |
 | ZSet 有序集合 | ziplist、skiplist                      | <64byte <128 =  ziplist |
-| Hash 哈希表   | ziplist、hashtable                     | <64byte <512 = ziplist  |
 
 #### 编码结构
 
 **SDS 数组：**通过 len 和 free 记录字符数组的长度，优化 C 字符串
-
-**ZipList：**类似数组在一片连续的内存存储数据，**允许存储数据的大小不同**（长度灵活，节约空间）
-
-​	zlbytes 占用字节数，zltail 尾到头多少字节，zllen 节点数量(<65535)，zlend 末端标记
-
-**QuickList：**= ZipList + LinkedList 将链表分段，每段使用 ZipList 来紧凑存储，多个用双向指针串联
-
-​	因双向链表前后指针占用浪费，节点单独分配内存，加剧碎片化
-
-**intSet：**可以存储 int16_t、int32_t、int64_t 整数，通过升级的方式节约内存（不可降级）
-
-**SkipList：**在双向链表的基础上加多级索引，提高检索效率（数据量大）
 
 **Dict：**又叫散列表（hash）键值对的结构
 
@@ -1475,19 +1465,176 @@ redis IO 多路复用程序：
 3. 新增在 ht[1] 上；修改、删除、查询在老 ht[0] 上
 4. 在任何操作时，都会附带将 ht[0] 在 rehashidx 索引上的所有键值对移动到 ht[1] 上，然后 rehashidx 自增 1
 
+**ZipList：**类似数组在一片连续的内存存储数据，**允许存储数据的大小不同**（长度灵活，节约空间）
+
+​	zlbytes 占用字节数，zltail 尾到头多少字节，zllen 节点数量(<65535)，zlend 末端标记
+
+**QuickList：**= ZipList + LinkedList 将链表分段，每段使用 ZipList 来紧凑存储，多个用双向指针串联
+
+​	因双向链表前后指针占用浪费，节点单独分配内存，加剧碎片化
+
+**intSet：**可以存储 int16_t、int32_t、int64_t 整数，通过升级的方式节约内存（不可降级）
+
+**SkipList：**在双向链表的基础上加多级索引，提高检索效率（数据量大）
+
 
 
 ### 持久化
 
-1. RDB（redis database）默认的持久化策略（4.0+ 混合），按照**一定的时间将内存中的数据**以快照形式保存到硬盘中的 dump.rdb
+两种持久化策略不冲突，可同时使用
 
-   使用配置中的 save 定义时间段，因为是按照时间段保存，所以可能出现数据丢失
+#### RDB（redis database）
 
-2. AOP（append only file）将**每次写命令**记录到单独的日志文件中（文件大，恢复慢，启动效率低）
+默认开启的持久化策略；
 
-   使用 appendfsync=always 表示每执行一个命令就写入文件，从而保证数据安全
-   
-   
+按照**一定的时间将内存中的数据**以快照形式保存到硬盘中的 dump.rdb（可能丢失最后一次持久化后的数据）
+
+**主动触发命令：**
+
+​	save：将当前所有数据保存到 .rdb 文件中，会阻塞所有用户线程直到写磁盘结束
+
+​	bgsave：创建子线程来执行备份任务，不会阻塞
+
+**自动触发场景：**
+
+​	1. 使用配置中的 save \<seconds> \<changes> 定义时间段；可指定多个配置
+
+​		save 300 10 = 至少有 10 个被修改，则 300 秒触发快照
+
+​		save 60 10000 = 至少 10000 个被修改，则 60 秒触发快照
+
+ 2. 通过 SHUTDOWN 命令正常关闭时，自动触发一次，用于重启恢复
+ 3. 从节点和主节点建立连接时，自动触发 RDB 持久化后将文件发送给从节点
+
+#### AOF（append only file）
+
+**目前更为主流**；将**每次写命令**记录到单独的日志文件中（文件大，恢复慢，启动效率低）
+
+在 redis.conf 使用 appendfsync 指定刷新策略：
+
+​	=always 表示每执行一个命令就写入文件，从而保证数据安全
+
+​	=everysec（默认） 每秒写入文件，崩溃会丢失一秒的数据
+
+​	=no 由操作系统的内核缓存冲洗决定
+
+文件随着操作无限增大 ？
+
+​	重写压缩 - 创建子线程，将当前最新的数据状态转换为一条命令，写入到新的 AOF 文件中
+
+​	主动重写命令：bgrewriteaof
+
+#### Hybrid AOF（ver 4.0+）
+
+**当执行 AOF 重写时**，不再从空文件开始，而是将当前内存快照（RDB）写入 AOF 文件头部，然后追加写命令形成完整的数据恢复日志。
+
+#### 数据恢复
+
+1. AOF 开启且存在 AOF 文件时，优先加载 AOF 文件。
+2. AOF 关闭或者 AOF 文件不存在时，加载 RDB 文件。
+
+
+
+### 数据分区
+
+1. hash % node_number：当出现节点加入或者退出，所有节点都将受到影响
+2. hash + 顺时针（一致性hash）：计算 hash 后顺时针找到先遇见的节点存放，有节点变动只影响下一个节点
+3. hash % 16383（redis cluster）：将所有的 key 分为 0-16383 个槽位，计算 hash 后取余
+
+### 架构模式
+
+#### 主从模式
+
+通过读写分离，优化读和写不能同时进行的问题。但是主节点一旦挂掉，不能自动切换
+
+所有的数据处理都在 master 上进行
+
+主从复制原理：
+
+<img src="https://cdn.tobebetterjavaer.com/tobebetterjavaer/images/sidebar/sanfene/redis-aa8d2960-b341-49cc-b04c-201241fd15de.png" width=50%>
+
+1. salve 发送 psync 到 master，如果是首次连接则全量复制（psync -1）
+2. master 收到psync -1 全量复制，则回复 +FULLRESYNC 响应（任务ID-runId 和偏移量-offset）；slave 收到后保存
+3. master 启动后台线程，生成 RDB 快照
+4. master 发送 RDB，slave 先保存到硬盘
+5. master 会将发送 RDB 过程中的写命令保存到客户端缓冲区内；当 RDB 接受完后同步
+6. salve 接收到主节点的所有数据后，清空自身旧数据
+7. slave 开始加载 RDB 文件，完成后若开启 AOF 则立即进行 bgrewriteaof 操作
+8. 如果断开连接，自动重连后会将增量数据发送到 slave
+
+#### 哨兵模式
+
+给主从模式配置哨兵，以实现自动的主从切换功能。提高系统可用性
+
+适合读 > 写的情况，如果写多会对 master 形成同步压力
+
+**主节点掉线后迁移机制**：
+
+1. -------------- 探测阶段 --------------
+
+2. 主观掉线：Sentinel 会每秒一次向建立连接的主节点发送 **PING** 命令，如果 **down-after-milliseconds** 内未回复则认为其掉线
+
+3. 客观掉线：Sentinel 向其他监控此节点的哨兵查询主机状态，超过 **quornum** 数量的哨兵都认为其下线，则认为客观掉线
+
+4. -------------- 选举阶段 --------------
+
+5. **选举 Leader Sentinel**：（临时性，leader 角色并不会持续存在）
+
+   使用类似 Raft 算法选举出 Leader；备注：类似 raft 算法并没有严格的Raft 状态： Follower | Candidate | Leader）
+
+   3. 每个节点都广播 is-master-down-by-addr 给其他 sentinel
+
+      1. 创建一个 epoch（投票轮）
+      2. **给自己投票**，并向其他节点发送 RequestVote（投票） 的消息
+
+   4. 其他节点收到消息后，**若未投票则投票支持**
+
+   5. 谁先收到了大多数节点的同意，则转换为 Leader
+
+   6. 向其他节点发送 AppendEnties（通知）
+
+      注：Raft 协议采用**每个节点随机超时时间**，先转为 Candidate 的节点会先发起投票，从而获得多数票
+
+6. -------------- 转移阶段 --------------
+
+7. Leader Sentinel 确定升级节点：在 slave 中选择一个升级
+
+   1. 去掉客观、主观掉线的节点
+   2. 选择 slave-priority 最高的节点
+   3. 选择数据偏移量大的节点（数据多）
+   4. 选择 runid（pid）最小的节点（越小说明重启的少）
+
+8. 故障转移：
+
+   1. 让其他 slave 复制 new-master
+   2. 客户端连接时返回 new-master 地址
+   3. 新增 new-master 的 replicaof 配置； sentinel.conf 修改监控对象为 new-master
+
+#### 集群模式
+
+为避免单一节点负载过高导致不稳定，集群模式用**一致性哈希|哈希槽**将 key 分到各个节点上去
+
+高可用：集群各个节点会探测相互是否存活，多个节点判定一个节点挂了，则将其踢出集群并选择一个从节点作为新主节点（哨兵类似）
+
+避免了单点问题，但节点间同步会消耗部分性能
+
+在写比较多的情况下使用此模式
+
+### 心跳检测
+
+slave 默认会以每秒一次的频率向 master 发送 ACK 命令
+
+1. 检测连接状态，lag 值 = 0-1，超过则说明主从之间连接有故障
+
+2. 通过配置防止 master 在不安全的情况下执行写命令
+
+   min-slaves-to-write 3 ：表示在 slave < 3 时 master 不执行写入命令
+
+   min-slaves-max-lag 10：表示在 lag > 10 时 master 不执行写入命令
+
+3. 检测命令丢失，进行重试
+
+
 
 ### 事务
 
@@ -1501,11 +1648,41 @@ redis IO 多路复用程序：
 4. RECARD：客户端清空队列，并放弃执行事务
 5. UNWATCH：取消 WATCH 对所有键的监控
 
+### 分布式锁
+
+#### WATCH 实现 Redis 乐观锁
+
+WATCH 是 redis 自带的命令，可以监控一个或多个变量是否被更改，更改则其他指令不会执行
+
+1. WATCH xxx
+2. GET xxx 然后在 value += 1
+3. EXEC，如果 value 被修改过则回滚
+
+#### setnx 防止超卖
+
+setnx 只有在当前 key 不存在时才会成功
+
+加锁：jedis.set(key, value, "NX", "EX", expireTime)
+
+释放锁：使用 redis + lua 
+
+```java
+String lua = "if redis.call('get', KEYS[1]) == ARGV[1] then"
+    			+ " return redis.call('del', KEYS[1]) "
+    		+ "else "
+    			+"return 0 end";
+Object result = jedis.eval(lua, Collections.singletonList(lockKey);
+```
+
+#### Redisson 分布式锁
+
+在业务需要强一致性，不能重复获得锁的情况下可以使用。性能较低比较重量级
+
 
 
 ### 内存淘汰策略
 
-当内存不够时，全局的移除策略
+当 redis 内存不够时，全局的移除策略
 
 1. noeviction：不移除，报错
 2. allkeys-lru：移除最近最少使用的
@@ -1517,15 +1694,19 @@ redis IO 多路复用程序：
 2. volatile-random：随机移除
 3. volatile-ttl：移除快过期的
 
+### Redis 优化
 
+1. 使用短 key，KV 值太大可以拆分成几个小的
+2. 尽量少用 keys *（这个命令是阻塞的）
+3. 尽量设置过期时间，以保证会被清理
+4. 如果不需要持久化的可以关闭以提升性能
+5. 读写峰值单机 10W 左右，超过可使用 local-cache 配合，甚至多层 redis 缓存
 
 ### 缓存失效策略
 
 1. 定时清理：给设置了过期时间的 key 创建定时器
 2. 惰性清理：在获取时判断（对内存不友好 --没有正常释放）
 3. 定时扫描清理：在 100ms 内随机检查 20 个，若存在 25% 以上则循环删除
-
-
 
 ### 使用时读写策略
 
@@ -1538,8 +1719,6 @@ redis IO 多路复用程序：
 3. Write Behind caching（异步缓存写入）：只更新 cache，批量异步更新 DB；例：多次写入影响效率，先放到缓存再一次写入
 
 请求数据不一定在 cache 中：提前将热点数据写入到 cache
-
-
 
 ### 常见问题
 
@@ -1586,142 +1765,6 @@ redis IO 多路复用程序：
 - 拆分成多个 key-value 的小 key
 - 序列化后压缩存储的数据
 - 定期清理失效数据
-
-
-
-### 数据分区
-
-1. hash % node_number：当出现节点加入或者退出，所有节点都将受到影响
-2. hash + 顺时针（一致性hash）：计算 hash 后顺时针找到先遇见的节点存放，有节点变动只影响下一个节点
-3. hash % 16383（redis cluster）：将所有的 key 分为 0-16383 个槽位，计算 hash 后取余
-
-
-
-### 架构模式
-
-#### 主从模式
-
-通过读写分离，优化读和写不能同时进行的问题。但是主节点一旦挂掉，不能自动切换
-
-所有的数据处理都在 master 上进行
-
-主从复制原理：
-
-1. salve 发送 psync 到 master
-2. 如果是首次连接则全量复制， master 启动后台线程，生成 RDB 快照
-3. master 发送 RDB，slave 先保存到硬盘，然后加载到内存
-4. master 会将过程中的写命令保存到缓存，slave 实时同步
-5. 如果断开连接，自动重连后会将增量数据发送到 slave
-
-#### 哨兵模式
-
-给主从模式配置哨兵，以实现自动的主从切换功能。提高系统可用性
-
-适合读 > 写的情况，如果写多会对 master 形成同步压力
-
-**主节点掉线后迁移机制**：
-
-1. 确认主观掉线：Sentinel 会每秒一次向建立连接的节点发送 **PING** 命令，如果 **down-after-milliseconds** 内未回复则认为其掉线
-
-2. 确认客观掉线：Sentinel 向其他监控此节点的哨兵查询主机状态，超过 **quornum** 数量的哨兵都认为其下线，则认为客观掉线
-
-3. 选举 Leader Sentinel：在 Sentinel 中使用 Raft 算法选举出 Leader（Raft 状态： Follower | Candidate | Leader）
-
-   1. 触发选举，所有节点初始化为 Follower 状态，term = 0
-
-   2. 收到了其他节点的 RequestVote（投票） | AppendEnties（通知），则保持 Follower 状态
-
-   3. 超时时间到但未收到消息，则自己开始竞选，修改为 Candidate 状态
-
-      1. 创建一个 term（投票轮）
-      2. **给自己投票**，并向其他节点发送 RequestVote 的消息
-
-   4. **其他节点收到消息后会将票投给第一个收到 RequestVote 的节点**（也就是发起人）
-
-   5. 在超时时间内，收到了大多数节点的同意，则转换为 Leader
-
-   6. 向其他节点发送 AppendEnties 通知
-
-      注：Raft 协议采用**每个节点随机超时时间**，先转为 Candidate 的节点会先发起投票，从而获得多数票
-
-4. Leader Sentinel 确定升级节点：在 slave 中选择一个升级
-
-   1. 去掉客观、主观掉线的节点
-   2. 选择 slave-priority 最高的节点
-   3. 选择数据偏移量大的节点（数据多）
-   4. 选择 runid（pid）最小的节点（越小说明重启的少）
-
-5. 故障转移：
-
-   1. 让其他 slave 复制 new-master
-   2. 客户端连接时返回 new-master 地址
-   3. 新增 new-master 的 replicaof 配置； sentinel.conf 修改监控对象为 new-master
-
-#### 集群模式
-
-为避免单一节点负载过高导致不稳定，集群模式用**一致性哈希|哈希槽**将 key 分到各个节点上去
-
-高可用：集群各个节点会探测相互是否存活，多个节点判定一个节点挂了，则将其踢出集群并选择一个从节点作为新主节点（哨兵类似）
-
-避免了单点问题，但节点间同步会消耗部分性能
-
-在写比较多的情况下使用此模式
-
-### 心跳检测
-
-slave 默认会以每秒一次的频率向 master 发送 ACK 命令
-
-1. 检测连接状态，lag 值 = 0-1，超过则说明主从之间连接有故障
-
-2. 通过配置防止 master 在不安全的情况下执行写命令
-
-   min-slaves-to-write 3 ：表示在 slave < 3 时 master 不执行写入命令
-
-   min-slaves-max-lag 10：表示在 lag > 10 时 master 不执行写入命令
-
-3. 检测命令丢失，进行重试
-
-
-
-### 分布式锁
-
-#### WATCH 实现 Redis 乐观锁
-
-WATCH 是 redis 自带的命令，可以监控一个或多个变量是否被更改，更改则其他指令不会执行
-
-1. WATCH xxx
-2. GET xxx 然后在 value += 1
-3. EXEC，如果 value 被修改过则回滚
-
-#### setnx 防止超卖
-
-setnx 只有在当前 key 不存在时才会成功
-
-加锁：jedis.set(key, value, "NX", "EX", expireTime)
-
-释放锁：使用 redis + lua 
-
-```java
-String lua = "if redis.call('get', KEYS[1]) == ARGV[1] then"
-    			+ " return redis.call('del', KEYS[1]) "
-    		+ "else "
-    			+"return 0 end";
-Object result = jedis.eval(lua, Collections.singletonList(lockKey);
-```
-
-#### Redisson 分布式锁
-
-在业务需要强一致性，不能重复获得锁的情况下可以使用。性能较低比较重量级
-
-
-
-### Redis 优化
-
-1. 使用短 key，KV 值太大可以拆分成几个小的
-2. 尽量少用 keys *（这个命令是阻塞的）
-3. 尽量设置过期时间，以保证会被清理
-4. 如果不需要持久化的可以关闭以提升性能
-5. 读写峰值单机 10W 左右，超过可使用 local-cache 配合，甚至多层 redis 缓存
 
 ### Redis 热升级
 
