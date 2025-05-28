@@ -945,11 +945,9 @@ MyISAM：5.5- 的默认引擎，适合读比较多的场景
 
 读已提交（Read Commit）：加行排他锁实现，允许读取已提交的事务数据  ——不可重复读、幻读
 
-可重复读（Repeatable Read）：事务生成ReadView实现，多个事务读取同一数据是一致的  ——幻读
+可重复读（Repeatable Read）【默认】：事务生成ReadView实现，多个事务读取同一数据是一致的  ——幻读
 
 顺序读（Serializable）：加表级锁，所有事务依次读取
-
-**默认等级（Repeatable Read）**
 
 解决幻读的方案：
 
@@ -958,6 +956,10 @@ MyISAM：5.5- 的默认引擎，适合读比较多的场景
 3. 采用 MVCC （Mulite-Version Concurrency Control）方案，确定事务可以读取到的版本
 
 #### MVCC
+
+是 InnoDB **实现事务隔离**、提升并发性能的核心机制。
+
+它的设计初衷是：让数据库在保持一致性读的同时，尽可能地避免加锁，从而提升并发性能
 
 实现了 **“非阻塞读”** ——保存数据的历史版本，让读操作不需要加锁就能直接读取快照，也不会阻塞写操作，提高读的并发性能。
 
@@ -969,7 +971,7 @@ MyISAM：5.5- 的默认引擎，适合读比较多的场景
 
 **Read View：**是一个快照视图，用以确定可以读取到那些版本的数据
 
-生成情况：事务每次读取数据都生成（读已提交）第一次执行快照读生成（可重复读）
+生成情况：读已提交 -> 事务每次读取数据都生成；可重复读 -> 第一次执行快照读生成
 
 其中记录了当前活跃事务的 ID 集合、最小事务 ID、最大事务 ID 等信息，
 
@@ -1012,6 +1014,7 @@ MyISAM：5.5- 的默认引擎，适合读比较多的场景
    1. 唯一索引 + 等值 + 命中 = 退化为记录锁
    2. 唯一索引 + 等值 + 未命中 = 退化为插入点前后索引的间隙锁
    3. 唯一索引 + 范围 = 所有命中记录和所有间隙
+   4. 非唯一索引 = 二级索引加锁 + 回表主键索引加锁 + 等值（记录/间隙锁）OR 范围（临键锁）
 
 #### 锁类型
 
@@ -1020,7 +1023,7 @@ MyISAM：5.5- 的默认引擎，适合读比较多的场景
 1. 共享锁（Shared Lock，S）：也叫读锁，允许多个事务同时读取数据，但阻塞写操作
 2. 排他锁（Exclusive Lock，X）：也叫写锁，独占数据，阻塞其他事务的读写
 
-**注意：普通的 select （即未指定使用锁）是不会加行锁的，而是使用 MVCC 实现一致性，是无锁的**
+**注意：【在事务中】普通的 select （即未指定使用锁）是不会加行锁的，而是使用 MVCC 实现一致性，是无锁的**
 
 在表级和行级都有读写锁。表级：MySQL 定义 、行级：InnoDB 定义
 
@@ -1086,7 +1089,7 @@ MySQL 中的表锁和行锁都是悲观锁
 
    1. 从节点：开启 IO 线程，连接主节点的 dump 线程
 
-   2. 主节点：事务提交后以事件的方式记录到binlog，将变更的数据发送给连接了 dump 线程的从节点
+   2. 主节点：事务提交后以事件的方式记录到 binlog， dump 线程将变更的数据发送给连接的从节点
 
    3. 从节点：接受到 binlog 文件并保存到 Relay log 文件中
 
@@ -1108,11 +1111,21 @@ MySQL 中的表锁和行锁都是悲观锁
 
       replicate-do-db=需同步数据库
 
-   3. 主节点：查看当前数据状态 show master status; 创建同步对象 “replication”
+   3. 主节点：查看当前数据状态 show master status; 创建同步用户 “replication”
 
-   4. 从节点：配置主节点信息
+   4. 从节点：配置主节点信息，执行命令：
 
-      CHANGE MASTER TO MASTER_HOST='192.168.10.111', MASTER_USER='replication', MASTER_PASSWORD='123456', MASTER_LOG_FILE='mysql- bin.000006',MASTER_LOG_POS=2303;
+      **CHANGE MASTER TO** 
+
+      ​	MASTER_HOST='192.168.10.111', 
+
+      ​	MASTER_USER='replication', 
+
+      ​	MASTER_PASSWORD='123456', 
+
+      ​	MASTER_LOG_FILE='mysql- bin.000006',
+
+      ​	MASTER_LOG_POS=2303;
 
    5. 从节点：建立连接：START SLAVE;
 
@@ -1140,7 +1153,7 @@ MySQL 中的表锁和行锁都是悲观锁
 
 3. 半同步复制：至少一个从节点接收到 binlog 数据并写入 relay log 成功后，才提交主库的事务
 
-   **当指定时间内未收到从库的确认，那主库会自动切换为：异步复制模式，确保不阻塞应用**
+   **当指定时间内未收到任何从库的确认，那主库会自动切换为：异步复制模式，确保不阻塞应用**
 
    主库插件：INSTALL PLUGIN rpl_semi_sync_master SONAME 'semisync_master.so';
    
@@ -1190,6 +1203,7 @@ MySQL 中的表锁和行锁都是悲观锁
                	# 1.默认分片设置
                	default-database-strategy:
                		standard:
+               			sharding-column: xxx
                			sharding-algorithm-name: xxx
                	default-tables-strategy: 同上
                	default-key-generate-strategy: 同上
@@ -1265,7 +1279,6 @@ MySQL 中的表锁和行锁都是悲观锁
            #   driver-class-name: com.mysql.cj.jdbc.Driver
            # slave0: ...
            # slave1: ...
-   
        rules:
          readwrite-splitting:
            data-sources:
@@ -1276,7 +1289,6 @@ MySQL 中的表锁和行锁都是悲观锁
                    - <从库1>
                    - <从库2>
                load-balancer-name: <负载均衡算法名称>
-   
            load-balancers:
              <负载均衡算法名称>:
              	# 示例：ROUND_ROBIN / RANDOM / WEIGHT
@@ -1359,8 +1371,8 @@ MySQL 中的表锁和行锁都是悲观锁
 
 更新方式：
 
-	1. 当使用 INSERT \ UPDATE \ DELETE 会清空二级缓存
-	2. 当 SqlSession 关闭时，会将一级缓存写入到二级缓存
+1. 当使用 INSERT \ UPDATE \ DELETE 会清空二级缓存
+2. 当 SqlSession 关闭时，会将一级缓存写入到二级缓存
 
 #### 适用场景
 
@@ -1397,6 +1409,8 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 #### IO 多路复用
 
+多路复用是实现事件驱动（Reator 模式）一种底层技术：收发消息时不会阻塞，整个进程就被充分利用起来了。
+
 文件描述符（file descrptor，fd）：是**操作系统为每个已打开的文件（包括网络socket、管道pipe、设备/dev/null、常规文件.txt）分配的一个非负整数**，用来唯一标识该文件。
 
 简单理解就是：一个服务端进程可以同时处理多个 Socket 描述符，适合高并发连接、大量连接但读写频率低
@@ -1406,7 +1420,7 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 其发展可以分 **select -> poll -> epoll** 三个阶段来描述
 
-​	select：使用位图来管理最多 1024 个 fd；使用时将 fd 从用户态复制到内核态；轮询机制 O(n)
+​	select：使用位图来管理最多 1024 个 fd；使用时将 fd 从用户态复制到内核态；线性遍历 O(n)
 
 ​	poll：使用动态数组来管理 fd（不限数量）；线性遍历 O(n)
 
@@ -1418,9 +1432,7 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 2. 为每个 IO 多路复用函数库（ 各系统提供）都实现相同 API，所以底层实现是可以互换的
 
-   **注：linux epoll，其他只有 select 函数**
-
-服务器采用 IO 多路复用，收发消息时不会阻塞，整个进程就被充分利用起来了，这就是事件驱动（Reactor 模式）
+   **注：Linux：select poll epoll；Windows：select IOCP；macOS：kqueue**
 
 服务器处理的事件分为：文件事件（主功能） 和 时间事件（处理AOF持久化等）
 
@@ -1450,7 +1462,7 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 #### 编码结构
 
-**SDS 数组：**通过 len 和 free 记录字符数组的长度，优化 C 字符串
+**SDS 数组：**通过 len 和 free 记录字符数组的长度，优化 C 字符串；embstr、raw 都是封装的 sdshdr 的结构
 
 **Dict：**又叫散列表（hash）键值对的结构
 
@@ -1524,7 +1536,7 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 ​	主动重写命令：bgrewriteaof
 
-#### Hybrid AOF（ver 4.0+）
+#### Hybrid AOF（v4.0+）
 
 **当执行 AOF 重写时**，不再从空文件开始，而是将当前内存快照（RDB）写入 AOF 文件头部，然后追加写命令形成完整的数据恢复日志。
 
@@ -1535,12 +1547,6 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 
 
-### 数据分区
-
-1. hash % node_number：当出现节点加入或者退出，所有节点都将受到影响
-2. hash + 顺时针（一致性hash）：计算 hash 后顺时针找到先遇见的节点存放，有节点变动只影响下一个节点
-3. hash % 16383（redis cluster）：将所有的 key 分为 0-16383 个槽位，计算 hash 后取余
-
 ### 架构模式
 
 #### 主从模式
@@ -1549,11 +1555,13 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 所有的数据处理都在 master 上进行
 
-主从复制原理：
+执行命令：slaveof \<master-ip> \<master-port>
+
+##### 主从复制原理
 
 <img src="https://cdn.tobebetterjavaer.com/tobebetterjavaer/images/sidebar/sanfene/redis-aa8d2960-b341-49cc-b04c-201241fd15de.png" width=50%>
 
-1. salve 发送 psync 到 master，如果是首次连接则全量复制（psync -1）
+1. salve 发送 psync <run_id> \<offset>到 master，如果是首次连接则全量复制（psync ? -1）
 2. master 收到psync -1 全量复制，则回复 +FULLRESYNC 响应（任务ID-runId 和偏移量-offset）；slave 收到后保存
 3. master 启动后台线程，生成 RDB 快照
 4. master 发送 RDB，slave 先保存到硬盘
@@ -1562,19 +1570,37 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 7. slave 开始加载 RDB 文件，完成后若开启 AOF 则立即进行 bgrewriteaof 操作
 8. 如果断开连接，自动重连后会将增量数据发送到 slave
 
+##### 心跳检测
+
+slave 默认会以每秒一次的频率向 master 发送 ACK 命令
+
+1. 检测连接状态，lag 值 = 0-1，超过则说明主从之间连接有故障
+
+2. 通过配置防止 master 在不安全的情况下执行写命令
+
+   min-slaves-to-write 3 ：表示在 slave < 3 时 master 不执行写入命令
+
+   min-slaves-max-lag 10：表示在 lag > 10 时 master 不执行写入命令
+
+3. 检测命令丢失，进行重试
+
 #### 哨兵模式
 
 给主从模式配置哨兵，以实现自动的主从切换功能。提高系统可用性
 
 适合读 > 写的情况，如果写多会对 master 形成同步压力
 
+哨兵节点 = 只是一个特殊配置的 redis 节点，不提供数据功能而已
+
+实现方式：在 sentinel.conf 配置文件中指定：SENTINEL monitor m-name m-ip m-port 即可监控
+
 **主节点掉线后迁移机制**：
 
 1. -------------- 探测阶段 --------------
 
-2. 主观掉线：Sentinel 会每秒一次向建立连接的主节点发送 **PING** 命令，如果 **down-after-milliseconds** 内未回复则认为其掉线
+2. 主观掉线：Sentinel 会每秒一次向建立连接的主节点发送 **PING** 命令，返回 PONG，如果 **down-after-milliseconds** 内未回复则认为其掉线
 
-3. 客观掉线：Sentinel 向其他监控此节点的哨兵查询主机状态，超过 **quornum** 数量的哨兵都认为其下线，则认为客观掉线
+3. 客观掉线：Sentinel 向其他监控此节点的哨兵查询主机状态，超过 **quorum** 数量的哨兵都认为其下线，则认为客观掉线
 
 4. -------------- 选举阶段 --------------
 
@@ -1589,7 +1615,7 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
    4. 其他节点收到消息后，**若未投票则投票支持**
 
-   5. 谁先收到了大多数节点的同意，则转换为 Leader
+   5. 谁先收到了一半节点的同意，则转换为 Leader
 
    6. 向其他节点发送 AppendEnties（通知）
 
@@ -1620,19 +1646,50 @@ Mybatis 提供：使用 RowBounds 对象进行分页，是针对 ResultSet 的�
 
 在写比较多的情况下使用此模式
 
-### 心跳检测
+##### 数据分区
 
-slave 默认会以每秒一次的频率向 master 发送 ACK 命令
+1. hash % node_number（取余）：当出现节点加入或者退出，所有节点都将受到影响
+2. hash + 顺时针（一致性hash）：计算 hash 后顺时针找到先遇见的节点存放，有节点变动只影响下一个节点
+3. hash % 16383（redis cluster）：将所有的 key 分为 0-16383 个槽位，计算 hash 后取余
 
-1. 检测连接状态，lag 值 = 0-1，超过则说明主从之间连接有故障
+##### 创建集群
 
-2. 通过配置防止 master 在不安全的情况下执行写命令
+1. 设置节点：所有节点需要开启 cluster-enable yes 启动集群模式
+2. 启动集群：redis-cli --cluster create IP1:port1...IP6:port6 --cluster-replicas 1
+3. 节点握手：节点通过 Gossip 协议彼此通信，发送 cluster meet{ip}{port} 进行握手
+4. 分配槽：集群通过 cluster addslots 命令，将 16384 个槽分配到各个节点
 
-   min-slaves-to-write 3 ：表示在 slave < 3 时 master 不执行写入命令
+##### 故障发现
 
-   min-slaves-max-lag 10：表示在 lag > 10 时 master 不执行写入命令
+1. 集群内节点定期使用 ping/pong 消息实现节点通信
+2. 若在 cluster-node-timeout 时间内通信一直失败，则发送节点认为接收节点主观下线（pfail）
+3. 发现节点通过 Gossip 消息传播到其他节点，其他节点收集故障节点线下报告
+4. 若超过半数以上**主节点**都标记为主观下线，则升级为客观下线（fail）
 
-3. 检测命令丢失，进行重试
+##### 故障转移
+
+1. 资格检查：1.每个从节点检查与主节点断线时间是否 >cluster-node-timeout 2.谁的 offset 更新
+2. 发起选举：哪个从节点最早完成检查，就可以最先触发 FAILOVER_START，向所有节点发送 FAILOVER_AUTH_REQUEST（请求投票）
+3. 投票：每个主节点会收到处理故障选举的消息，一个主节点一票，回复 FAILOVER_AUTH_GRANTED
+4. 替换：收到超过 n/2 + 1 的从节点成为新主节点，设置为 master、停止复制、设置 configEpoch（提醒其他节点epoch更新）、广播 PONG
+
+##### 集群伸缩
+
+```bash
+# 创建集群
+redis-cli --cluster create IP1:port1...IP6:port6 --cluster-replicas 1
+
+# 添加节点
+redis-cli --cluster add-node 127.0.0.1:7004 127.0.0.1:7000
+
+# 重新分配槽位（迁移槽）
+redis-cli --cluster reshard 127.0.0.1:7000
+
+# 删除节点
+redis-cli --cluster del-node 127.0.0.1:7000 <node-id>
+```
+
+
 
 
 
@@ -1658,9 +1715,9 @@ WATCH 是 redis 自带的命令，可以监控一个或多个变量是否被更�
 2. GET xxx 然后在 value += 1
 3. EXEC，如果 value 被修改过则回滚
 
-#### setnx 防止超卖
+#### set NX 防止超卖
 
-setnx 只有在当前 key 不存在时才会成功
+set NX（redis 2.6+ 取代 setnx 命令）只有在当前 key 不存在时才会成功
 
 加锁：jedis.set(key, value, "NX", "EX", expireTime)
 
@@ -1678,13 +1735,25 @@ Object result = jedis.eval(lua, Collections.singletonList(lockKey);
 
 在业务需要强一致性，不能重复获得锁的情况下可以使用。性能较低比较重量级
 
+##### 实现方式
+
+在 RedissonLock 类中，通过 Lua 脚本封装 Redis 命令来实现                                                                                                      
+
+##### 自动续期 Watch Dog
+
+在 Redis 中获取到锁，但是程序实际的执行时间超过了设置的过期时间，则需要自动续期
+
+在 Redis 的看门狗机制中，检查锁的过程并不是单独的一个步骤，而是与锁的续期操作绑定在一起，通过 Lua 脚本完成的
+
+检查与续期是一个整体的原子操作，以确保只有持有锁的客户端才能成功续期
+
 
 
 ### 内存淘汰策略
 
 当 redis 内存不够时，全局的移除策略
 
-1. noeviction：不移除，报错
+1. noeviction：不移除，返回报错信息（默认）
 2. allkeys-lru：移除最近最少使用的
 3. allkeys-random：随机移除
 
@@ -1732,7 +1801,7 @@ Object result = jedis.eval(lua, Collections.singletonList(lockKey);
 **缓存穿透：**缓存和数据库中都没此数据，数据库接受了大量无效请求而崩掉
 
 - 加强参数校验，剔除无效参数
-- 在缓存中新增无数据标记，并设置短一点的过期时间。防止同一 ID 暴力攻击
+- 在缓存中新增无数据 null 标记，并设置短一点的过期时间。防止同一 ID 暴力攻击
 - 采用足够大的布隆过滤器
 
 **缓存击穿：**数据库有数据，缓存中没有。并发访问数据库中的同一记录
@@ -1752,13 +1821,16 @@ Object result = jedis.eval(lua, Collections.singletonList(lockKey);
 - 回写加互斥锁，查询失败快速返回
 - 保持缓存多备份，减少并发
 
-**HotKey：**
+**HotKey：**短时间内被频繁访问，导致系统崩溃（明星爆瓜）
 
-- 对于可以预见的提前评估
-- 使用工具（如 spark）找出最近历史的热点数据
+- 找出来：可以预见的提前评估；使用工具（如 spark）找出最近历史的热点数据
 - 将同一个 key 加个后缀，分成多份，分散压力
-- 集群可以单节点进行主从复制 和 垂直扩容
 - 使用应用内的缓存，注意设置上限
+
+**HotKey 重建：**并发量特别大 或 重建缓存不能短时间完成
+
+- 互斥锁，只有一个线程重建
+- 缓存永不过期，由程序来检查是否过期，然后异步重建
 
 **BigKey：** String > 5mb | size > 5000
 
